@@ -21,13 +21,14 @@ import os
 # def loadImports ():
     
 
-def loadData():
-    data = pd.read_csv(os.path.dirname(os.path.abspath(__file__))+"/weatherdata.csv", parse_dates=True, index_col=1)
+def loadData(url="/weatherdata.csv"):
+    # import and return the dataset you want to analyze
+    data = pd.read_csv(os.path.dirname(os.path.abspath(__file__))+url, parse_dates=True, index_col=1)
     data.head()
     return data
 
-def loadForecastingModel(data):
-    step_days = 14
+def loadForecastingModel(data, step_days = 14):
+
     dataset = data.filter(['HUM_MIN', 'HUM_AVG', 'HUM_MAX', 'PRES_MIN', 'PRES_AVG', 'PRES_MAX', 'TEMP_MIN',
                               'TEMP_AVG','TEMP_MAX']).values
     dataset = np.array(dataset)
@@ -44,29 +45,38 @@ def loadForecastingModel(data):
     history = model.fit(input_train, target_train, validation_data = (input_test, target_test),batch_size = 16, epochs = 100)
     return model
 
-def configExplanationParameters():
+def configExplanationParameters(nonOutputColumns_ = [0, 2, 3, 5, 6, 8],
+                                titleColumns_ = ["Humidity", "Vapor Pressure", "Temperature"],
+                                finalWindowNumber_ = 30,
+                                # 0 number of results, 1 average, 2 Max values, 3 min values, 4 median
+                                explicationMethodResult_ = 1
+                                ):
    global nonOutputColumns, windowsLen, componentsLen, windowLen, titleColumns, smoothnessFactor, punishedSumFactor, finalWindowNumber, explicationMethodResult,windows, targetWindow,titleIndexes
-   nonOutputColumns = [0, 2, 3, 5, 6, 8]
+   nonOutputColumns =nonOutputColumns_
+   titleColumns = titleColumns_
+   finalWindowNumber = finalWindowNumber_
+   explicationMethodResult = explicationMethodResult_
    windows = np.delete(inputnn, nonOutputColumns, 2)
    targetWindow, windows = windows[-1], windows[:-1]
    windowsLen = len(windows)
    componentsLen = windows.shape[2]
-   windowLen = windows.shape[1]  
-   titleColumns = ["Humidity", "Vapor Pressure", "Temperature"]
-   titleIndexes = ["Window Index {0}".format(index) for index in range(windowsLen)]
+   windowLen = windows.shape[1]
+   titleIndexes = ["Window Index {0}".format(index) for index in range(windowsLen)
+   ]
    smoothnessFactor = .03
    punishedSumFactor = .5
-   finalWindowNumber = 30
-   # 0 number of results, 1 average, 2 Max values, 3 min values, 4 median
-   explicationMethodResult = 1
 
-def split_sequences(sequences, n_steps):
+
+
+def split_sequences(sequences, n_steps, outputColumns):
+    # outputColumns contains the desired columns to be outputs with format of tuple like: (1,2,3,4)
+
     inputnn, target = list(), list()
     for i in range(len(sequences)):
         end_ix = i + n_steps
         if end_ix + 1 > len(sequences):
             break
-        seq_x, seq_y = sequences[i:end_ix], sequences[end_ix, (1,4,7)]
+        seq_x, seq_y = sequences[i:end_ix], sequences[end_ix, outputColumns]
         inputnn.append(seq_x)
         target.append(seq_y)
     return array(inputnn), array(target)
@@ -89,7 +99,8 @@ def explain(data, model):
         ([np.linalg.norm(targetWindow[:, currentComponent] - windows[currentWindow, :, currentComponent])
           for currentWindow in range(windowsLen) for currentComponent in range(componentsLen)])).reshape(-1,
                                                                                                          componentsLen)
-    normalizedEuclideanDistance = euclideanDistance / np.amax(euclideanDistance, axis=0)
+    normalizedEuclideanDistance = ((euclideanDistance-np.amin(euclideanDistance, axis=0)) /
+                                   (np.amax(euclideanDistance, axis=0)-np.amin(euclideanDistance, axis=0)))
     normalizedCorrelation = (.5 + (pearsonCorrelation - 2 * normalizedEuclideanDistance + 1) / 4)
     correlationPerWindow = np.sum(((normalizedCorrelation + punishedSumFactor) ** 2), axis=1)
     correlationPerWindow /= max(correlationPerWindow)
